@@ -1,0 +1,123 @@
+name: CD – Build & Push Docker Images
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Déclenchement :
+#   • merge (push) sur la branche main uniquement
+#   • pas de déclenchement sur les PR (on évite de pusher des images non validées)
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BACK: ${{ github.repository_owner }}/orion-microcrm-back
+  IMAGE_FRONT: ${{ github.repository_owner }}/orion-microcrm-front
+
+jobs:
+  # ── Build et push de l'image back-end ──────────────────────────────────────
+  docker-back:
+    name: Image Docker – Back-end
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Connexion au registre GHCR
+        # objective  : s'authentifier au GitHub Container Registry
+        # secrets    : GITHUB_TOKEN fourni automatiquement par GitHub Actions
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extraction des métadonnées Docker (tags, labels)
+        id: meta-back
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BACK }}
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build et push de l'image back-end
+        # objective  : construire l'image Docker du back-end et la pousser sur GHCR
+        # where      : back/Dockerfile
+        # when       : merge sur main
+        uses: docker/build-push-action@v5
+        with:
+          context: ./back
+          file: ./back/Dockerfile
+          push: true
+          tags: ${{ steps.meta-back.outputs.tags }}
+          labels: ${{ steps.meta-back.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Build et push de l'image front-end ─────────────────────────────────────
+  docker-front:
+    name: Image Docker – Front-end
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Connexion au registre GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extraction des métadonnées Docker (tags, labels)
+        id: meta-front
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_FRONT }}
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build et push de l'image front-end
+        # objective  : construire l'image Docker du front-end et la pousser sur GHCR
+        # where      : front/Dockerfile
+        # when       : merge sur main
+        uses: docker/build-push-action@v5
+        with:
+          context: ./front
+          file: ./front/Dockerfile
+          push: true
+          tags: ${{ steps.meta-front.outputs.tags }}
+          labels: ${{ steps.meta-front.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Déploiement (optionnel – décommenter pour activer) ─────────────────────
+  # deploy:
+  #   name: Déploiement sur le serveur cible
+  #   runs-on: ubuntu-latest
+  #   needs: [docker-back, docker-front]
+  #   environment: production
+  #
+  #   steps:
+  #     - name: Déploiement via SSH
+  #       uses: appleboy/ssh-action@v1
+  #       with:
+  #         host: ${{ secrets.DEPLOY_HOST }}
+  #         username: ${{ secrets.DEPLOY_USER }}
+  #         key: ${{ secrets.DEPLOY_SSH_KEY }}
+  #         script: |
+  #           cd /opt/microcrm
+  #           docker compose pull
+  #           docker compose up -d --remove-orphans

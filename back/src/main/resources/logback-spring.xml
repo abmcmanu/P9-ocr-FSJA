@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+  <!-- ── Profil non-test : logs JSON structurés vers la console ────────────── -->
+  <springProfile name="!test">
+
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+        <includeMdcKeyName>traceId</includeMdcKeyName>
+        <includeMdcKeyName>spanId</includeMdcKeyName>
+      </encoder>
+    </appender>
+
+    <root level="INFO">
+      <appender-ref ref="JSON_CONSOLE"/>
+    </root>
+
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="org.springframework" level="INFO"/>
+    <logger name="com.openclassroom.devops.orion" level="DEBUG"/>
+
+  </springProfile>
+
+  <!-- ── Profil elk : envoi TCP vers Logstash (actif uniquement avec ELK) ──── -->
+  <springProfile name="elk">
+
+    <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+      <destination>logstash:5000</destination>
+      <encoder class="net.logstash.logback.encoder.LogstashEncoder"/>
+      <reconnectionDelay>10 seconds</reconnectionDelay>
+      <keepAliveDuration>5 minutes</keepAliveDuration>
+    </appender>
+
+    <appender name="ASYNC_LOGSTASH" class="ch.qos.logback.classic.AsyncAppender">
+      <appender-ref ref="LOGSTASH"/>
+      <queueSize>512</queueSize>
+      <discardingThreshold>0</discardingThreshold>
+    </appender>
+
+    <root level="INFO">
+      <appender-ref ref="ASYNC_LOGSTASH"/>
+    </root>
+
+  </springProfile>
+
+  <!-- ── Profil test : logs lisibles en console ────────────────────────────── -->
+  <springProfile name="test">
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder>
+        <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+      </encoder>
+    </appender>
+
+    <root level="WARN">
+      <appender-ref ref="CONSOLE"/>
+    </root>
+
+  </springProfile>
+
+</configuration>

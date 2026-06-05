@@ -1,0 +1,16 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Configuration Logstash – MicroCRM
+# ─────────────────────────────────────────────────────────────────────────────
+
+http.host: "0.0.0.0"
+
+# Désactiver le monitoring X-Pack en local (évite les erreurs de connexion)
+xpack.monitoring.enabled: false
+
+# Niveau de log Logstash
+log.level: warn
+
+# Pipeline
+pipeline.workers: 2
+pipeline.batch.size: 125
+pipeline.batch.delay: 50

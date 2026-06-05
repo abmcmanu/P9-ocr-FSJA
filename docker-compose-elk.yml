@@ -1,0 +1,105 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MicroCRM – Stack ELK (Elasticsearch + Logstash + Kibana)
+#
+# Usage :
+#   docker compose -f docker-compose-elk.yml up -d
+#
+# Prérequis mémoire : ~4 Go de RAM disponibles
+# Ports exposés :
+#   9200 → Elasticsearch REST API
+#   5601 → Kibana Dashboard
+#   5044 → Logstash Beats input (Filebeat / applis)
+#   5000 → Logstash TCP input (logs directs depuis Spring Boot)
+#
+# Connexion à l'application MicroCRM :
+#   Lancer les deux compose en parallèle :
+#     docker compose up -d
+#     docker compose -f docker-compose-elk.yml up -d
+#   Ou fusionner les réseaux via external: true (voir commentaire réseau ci-bas)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Elasticsearch ──────────────────────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    container_name: microcrm-es01
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - xpack.security.enabled=false          # désactivé pour environnement local
+      - xpack.security.http.ssl.enabled=false
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-changeme}
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - elk
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Logstash ───────────────────────────────────────────────────────────────
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.13.0
+    container_name: microcrm-logstash
+    restart: unless-stopped
+    volumes:
+      - ./elk/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ./elk/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    ports:
+      - "5044:5044"    # Beats input
+      - "5001:5000"    # TCP input (Spring Boot via logstash-logback-encoder)
+    environment:
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+    networks:
+      - elk
+      - microcrm-net
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  # ── Kibana ─────────────────────────────────────────────────────────────────
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.0
+    container_name: microcrm-kibana
+    restart: unless-stopped
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD:-changeme}
+      - xpack.security.enabled=false
+    networks:
+      - elk
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q 'available'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+# ── Volumes persistants ───────────────────────────────────────────────────────
+volumes:
+  es_data:
+    driver: local
+
+# ── Réseaux ───────────────────────────────────────────────────────────────────
+# microcrm-net est créé par docker-compose.yml — lancer ce fichier en premier.
+# Logstash est attaché aux deux réseaux pour être résolvable depuis le back.
+networks:
+  elk:
+    driver: bridge
+  microcrm-net:
+    external: true

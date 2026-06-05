@@ -1,0 +1,190 @@
+name: CI – Build, Test & Quality
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Déclenchement :
+#   • push sur main ou develop
+#   • pull request vers main ou develop
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ── 1. Tests back-end (Spring Boot / Gradle) ────────────────────────────────
+  test-back:
+    name: Tests back-end (Java 17)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Configuration du JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Rendre gradlew exécutable
+        run: chmod +x back/gradlew
+
+      - name: Build et tests back-end
+        # objective  : compiler et exécuter les tests JUnit (MicroCRMApplicationTests + PersonRepositoryIntegrationTest)
+        # where      : back/build.gradle – tâche "test"
+        # when       : chaque push / PR
+        working-directory: back
+        run: ./gradlew test --no-daemon
+
+      - name: Publier le rapport de tests
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: back-test-report
+          path: back/build/reports/tests/test/
+          retention-days: 14
+
+  # ── 2. Tests front-end (Angular / Karma) ───────────────────────────────────
+  test-front:
+    name: Tests front-end (Node 20 / Karma)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Configuration de Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: front/package-lock.json
+
+      - name: Installation des dépendances npm
+        working-directory: front
+        run: npm ci
+
+      - name: Exécution des tests Angular (Chrome headless)
+        # objective  : exécuter les tests Karma/Jasmine des composants Angular
+        # where      : front/package.json – script "test"
+        # when       : chaque push / PR
+        working-directory: front
+        run: npx ng test --watch=false --browsers=ChromeHeadlessNoSandbox --code-coverage
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+
+      - name: Publier le rapport de couverture
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: front-coverage-report
+          path: front/coverage/
+          retention-days: 14
+
+  # ── 3. Build des artefacts (nécessaire pour SonarQube) ──────────────────────
+  build-back:
+    name: Build JAR (back-end)
+    runs-on: ubuntu-latest
+    needs: test-back
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Configuration du JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Rendre gradlew exécutable
+        run: chmod +x back/gradlew
+
+      - name: Build du JAR (sans tests)
+        # objective  : produire le JAR déployable
+        # where      : back/build.gradle – tâche "build -x test"
+        # when       : après validation des tests
+        working-directory: back
+        run: ./gradlew build -x test --no-daemon
+
+      - name: Publier le JAR comme artefact CI
+        uses: actions/upload-artifact@v4
+        with:
+          name: microcrm-back-jar
+          path: back/build/libs/*.jar
+          retention-days: 14
+
+  build-front:
+    name: Build Angular (front-end)
+    runs-on: ubuntu-latest
+    needs: test-front
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Configuration de Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: front/package-lock.json
+
+      - name: Installation des dépendances npm
+        working-directory: front
+        run: npm ci
+
+      - name: Build Angular (production)
+        # objective  : produire le bundle Angular optimisé
+        # where      : front/package.json – script "build"
+        # when       : après validation des tests
+        working-directory: front
+        run: npx ng build --configuration=production
+
+      - name: Publier le dist Angular comme artefact CI
+        uses: actions/upload-artifact@v4
+        with:
+          name: microcrm-front-dist
+          path: front/dist/
+          retention-days: 14
+
+  # ── 4. Analyse qualité SonarQube Cloud ─────────────────────────────────────
+  sonarqube:
+    name: Analyse SonarQube Cloud
+    runs-on: ubuntu-latest
+    needs: [build-back, build-front]
+
+    steps:
+      - name: Checkout du code (historique complet pour SonarQube)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configuration du JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Rendre gradlew exécutable
+        run: chmod +x back/gradlew
+
+      - name: Analyse SonarQube Cloud (back-end)
+        # objective  : détecter vulnérabilités, code smells, duplication
+        # where      : back/build.gradle – plugin SonarQube
+        # when       : après build, sur chaque push/PR
+        # secrets    : SONAR_TOKEN stocké dans GitHub Secrets (jamais en clair)
+        working-directory: back
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          ./gradlew sonar \
+            --no-daemon \
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }} \
+            -Dsonar.host.url=https://sonarcloud.io
