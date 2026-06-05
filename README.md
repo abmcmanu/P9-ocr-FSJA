@@ -2,10 +2,9 @@
   <img src="./front/src/favicon.png" width="96px" />
 </p>
 
-# MicroCRM – Documentation de déploiement CI/CD
+# MicroCRM – Mettez en œuvre l'intégration et le déploiement continu d'une application Full-Stack
 
 Application CRM interne Orion – Back-end Spring Boot 3 · Front-end Angular 17
-
 ---
 
 ## Table des matières
