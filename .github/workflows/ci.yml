@@ -173,11 +173,11 @@ jobs:
       - name: Rendre gradlew exécutable
         run: chmod +x back/gradlew
 
+      - name: Compilation et couverture (classes + rapport Jacoco requis par SonarQube)
+        working-directory: back
+        run: ./gradlew test jacocoTestReport --no-daemon
+
       - name: Analyse SonarQube Cloud (back-end)
-        # objective  : détecter vulnérabilités, code smells, duplication
-        # where      : back/build.gradle – plugin SonarQube
-        # when       : après build, sur chaque push/PR
-        # secrets    : SONAR_TOKEN stocké dans GitHub Secrets (jamais en clair)
         working-directory: back
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
