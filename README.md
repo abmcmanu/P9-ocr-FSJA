@@ -238,6 +238,8 @@ Push / PR
 | `cd.yml` | Push (merge) vers `main` |
 | `release.yml` | Push d'un tag `v*.*.*` |
 
+> **Note :** `ci.yml` ne se déclenche actuellement que sur événement (push/PR). Un déclenchement hebdomadaire programmé est recommandé — voir [section 10](#10-plan-de-testing-périodique).
+
 ### Commandes importantes
 
 | Commande | Objectif | Défini dans | Moment |
@@ -373,18 +375,35 @@ git push origin v1.0.0
 | Tests unitaires front | Karma, Jasmine | Push, PR | Validation composants Angular |
 | Analyse qualité | SonarQube Cloud | Push, PR | Qualité et sécurité du code |
 | Tests de build Docker | `docker compose up` | Merge main (CD) | Validité des images |
-| Tests programmés | (à implémenter) | Hebdomadaire | Stabilité long terme |
+| Tests programmés | ⚠️ non implémenté – voir recommandation ci-dessous | — | Stabilité long terme |
 
-### Ajouter un test hebdomadaire programmé
+---
 
-Dans `ci.yml`, section `on` :
+### Recommandation : test hebdomadaire programmé
+
+> ⚠️ **Ce déclencheur n'existe pas encore dans `ci.yml`.** C'est une recommandation d'amélioration continue, pas une configuration active.
+
+**Pourquoi l'ajouter ?**
+
+Les déclencheurs sur push/PR ne couvrent pas tous les risques :
+
+- Une dépendance tierce peut introduire une **régression silencieuse** sans qu'aucun push n'ait eu lieu (mise à jour npm, rupture d'API externe, expiration de token, etc.).
+- Un dépôt peu actif peut rester des semaines sans push — la **détection de dégradation** arrive alors trop tard.
+- Un test hebdomadaire constitue un filet de sécurité minimal pour **valider l'état de l'infrastructure** (Docker, registry GHCR, SonarCloud) indépendamment de l'activité de développement.
+- Il permet de mesurer des **métriques DORA de stabilité** (MTTR, Change Failure Rate) sur des périodes sans déploiement actif.
+
+**Implémentation recommandée** — modifier la section `on` de `.github/workflows/ci.yml` :
 
 ```yaml
 on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  # ── Recommandation : déclenchement hebdomadaire ──────────────────────────
   schedule:
     - cron: '0 6 * * 1'  # Chaque lundi à 6h UTC
 ```
 
----
+Avec ce déclencheur, l'ensemble du pipeline CI (tests back + front + SonarQube) s'exécute automatiquement chaque lundi matin, sans intervention humaine. Les résultats sont visibles dans l'onglet **Actions** du dépôt GitHub.
 
-*Projet Orion MicroCRM – Pipeline CI/CD · Juin 2026*
